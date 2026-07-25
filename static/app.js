@@ -934,6 +934,17 @@ document.getElementById('close-angelone-otp')?.addEventListener('click', () => {
     exnessConnectBtn.addEventListener('click', () => {
       exnessModal.style.display = 'flex';
       exnessMessage.style.display = 'none';
+
+      // Load saved Exness details if available
+      if (localStorage.getItem('exnessRemember') === 'true') {
+        const accountIdInput = document.getElementById('exness-account-id');
+        const serverInput = document.getElementById('exness-server');
+        const rememberInput = document.getElementById('exness-remember');
+        
+        if (accountIdInput) accountIdInput.value = localStorage.getItem('exnessAccountId') || '';
+        if (serverInput) serverInput.value = localStorage.getItem('exnessServer') || '';
+        if (rememberInput) rememberInput.checked = true;
+      }
     });
 
     closeExnessModalBtn.addEventListener('click', () => {
@@ -953,6 +964,17 @@ document.getElementById('close-angelone-otp')?.addEventListener('click', () => {
       const accountId = document.getElementById('exness-account-id').value;
       const password = document.getElementById('exness-password').value;
       const server = document.getElementById('exness-server').value;
+      const rememberCheckbox = document.getElementById('exness-remember');
+
+      if (rememberCheckbox && rememberCheckbox.checked) {
+        localStorage.setItem('exnessRemember', 'true');
+        localStorage.setItem('exnessAccountId', accountId);
+        localStorage.setItem('exnessServer', server);
+      } else {
+        localStorage.removeItem('exnessRemember');
+        localStorage.removeItem('exnessAccountId');
+        localStorage.removeItem('exnessServer');
+      }
 
       exnessSubmitBtn.textContent = 'Connecting...';
       exnessSubmitBtn.disabled = true;
