@@ -82,6 +82,7 @@ def close_mt5_position(symbol, user=None):
         if not initialize(user):
             return False, "MT5 init failed"
         
+        symbol = get_valid_symbol(symbol)
         positions = mt5.positions_get(symbol=symbol)
         if not positions or len(positions) == 0:
             return True, "No open position to close"
@@ -123,7 +124,15 @@ def close_mt5_position(symbol, user=None):
         return True, f"Position {ticket} closed at {result.price}"
 
 
-def place_real_mt5_trade(symbol, action, volume, sl_points, tp_points, user=None, magic=999111):
+def get_valid_symbol(symbol):
+    """Checks if the symbol or symbol+'m' exists on MT5."""
+    if mt5.symbol_info(symbol) is not None:
+        return symbol
+    if mt5.symbol_info(f"{symbol}m") is not None:
+        return f"{symbol}m"
+    return symbol
+
+def place_real_mt5_trade(symbol, action, volume, sl_points, tp_points, user=None):
     """
     Places a REAL trade on the connected MT5/Exness terminal.
     sl_points and tp_points are the distance in points (e.g. 150 points).
@@ -132,6 +141,7 @@ def place_real_mt5_trade(symbol, action, volume, sl_points, tp_points, user=None
         if not initialize(user):
             return False, "MT5 init failed", 0.0
 
+        symbol = get_valid_symbol(symbol)
         symbol_info = mt5.symbol_info(symbol)
         if symbol_info is None:
             return False, f"{symbol} not found", 0.0
@@ -144,6 +154,13 @@ def place_real_mt5_trade(symbol, action, volume, sl_points, tp_points, user=None
         tick = mt5.symbol_info_tick(symbol)
         if tick is None:
             return False, f"No tick data for {symbol}", 0.0
+
+        # Dynamically adjust SL/TP to prevent 'Invalid Stops' (error 10016)
+        min_required_points = max(symbol_info.trade_stops_level, symbol_info.spread + 10)
+        if sl_points < min_required_points:
+            sl_points = min_required_points
+        if tp_points < min_required_points * 2:
+            tp_points = min_required_points * 2
 
         if action == "BUY":
             order_type = mt5.ORDER_TYPE_BUY
@@ -167,21 +184,32 @@ def place_real_mt5_trade(symbol, action, volume, sl_points, tp_points, user=None
             "sl": sl,
             "tp": tp,
             "deviation": 20,
-            "magic": magic,
+            "magic": 999111,
             "comment": "Nextun Bot",
             "type_time": mt5.ORDER_TIME_GTC,
             "type_filling": mt5.ORDER_FILLING_IOC,
         }
 
         result = mt5.order_send(request)
-        if result.retcode != mt5.TRADE_RETCODE_DONE:
-            return False, f"Trade error: {result.retcode} - {result.comment}", 0.0
+        
+        # Fallback for Unsupported Filling Mode (error 10030)
+        if result and result.retcode == 10030:
+            request["type_filling"] = mt5.ORDER_FILLING_FOK
+            result = mt5.order_send(request)
+            if result and result.retcode == 10030:
+                request["type_filling"] = mt5.ORDER_FILLING_RETURN
+                result = mt5.order_send(request)
+
+        if result is None or result.retcode != mt5.TRADE_RETCODE_DONE:
+            err_code = result.retcode if result else "Unknown"
+            err_msg = result.comment if result else mt5.last_error()
+            return False, f"Trade error: {err_code} - {err_msg}", 0.0
 
         return True, f"Placed at {result.price}", result.price
 
-
 def get_rates(symbol, timeframe, bars=300):
     with mt5_lock:
+        symbol = get_valid_symbol(symbol)
         tf = TIMEFRAMES.get(timeframe, mt5.TIMEFRAME_M15)
 
         rates = mt5.copy_rates_from_pos(symbol, tf, 0, bars)
@@ -289,7 +317,7 @@ def get_open_position(symbol):
     Check MT5 for an open position on this symbol.
     Returns "BUY", "SELL", or None.
     """
-
+    symbol = get_valid_symbol(symbol)
     positions = mt5.positions_get(symbol=symbol)
 
     if positions is None or len(positions) == 0:

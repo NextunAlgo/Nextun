@@ -1,6 +1,6 @@
 import MetaTrader5 as mt5
 import pandas as pd
-from .dbtp_dbbtm import initialize, shutdown, get_rates, get_open_position
+from .dbtp_dbbtm import initialize, shutdown, get_rates, get_open_position, get_valid_symbol
 
 def get_higher_timeframe(tf_string):
     """
@@ -20,6 +20,8 @@ def get_signal(symbol, timeframe, user=None):
         if not initialize():
             return {"action": "NONE"}
 
+    symbol = get_valid_symbol(symbol)
+
     # Fetch Execution TF
     exec_df = get_rates(symbol, timeframe, bars=100)
     if exec_df is None or len(exec_df) < 8:
@@ -34,8 +36,8 @@ def get_signal(symbol, timeframe, user=None):
         shutdown()
         return {"action": "NONE"}
 
-    # Calculate Major Pools on Higher TF
-    struct_window = 24 if higher_tf == "H1" else 6
+    # Calculate Major Pools on Higher TF (Relaxed to 6-candle rolling window for more frequent signals)
+    struct_window = 6
     
     # Major Pools are calculated up to the previous unclosed candle to avoid lookahead
     struct_df['Major_High'] = struct_df['high'].rolling(window=struct_window).max().shift(1)
@@ -56,8 +58,8 @@ def get_signal(symbol, timeframe, user=None):
     # Check BUY SETUP (LONG CONDITIONS)
     # The reclaim candle must be bullish and close above the major low
     if reclaim['close'] > reclaim['open'] and reclaim['close'] > current_major_low:
-        # Look back at the 5 candles preceding the reclaim candle to find a sweep
-        recent_lows = exec_df.iloc[-7:-2]['low']
+        # Look back at the 15 candles preceding the reclaim candle to find a sweep
+        recent_lows = exec_df.iloc[-16:-1]['low']
         lowest_recent = recent_lows.min()
         
         if lowest_recent < current_major_low: # A sweep occurred recently!
@@ -84,8 +86,8 @@ def get_signal(symbol, timeframe, user=None):
     # Check SELL SETUP (SHORT CONDITIONS)
     # The reclaim candle must be bearish and close below the major high
     if reclaim['close'] < reclaim['open'] and reclaim['close'] < current_major_high:
-        # Look back at the 5 candles preceding the reclaim candle to find a sweep
-        recent_highs = exec_df.iloc[-7:-2]['high']
+        # Look back at the 15 candles preceding the reclaim candle to find a sweep
+        recent_highs = exec_df.iloc[-16:-1]['high']
         highest_recent = recent_highs.max()
         
         if highest_recent > current_major_high: # A sweep occurred recently!
