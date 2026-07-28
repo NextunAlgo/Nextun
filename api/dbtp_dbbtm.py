@@ -132,7 +132,7 @@ def get_valid_symbol(symbol):
         return f"{symbol}m"
     return symbol
 
-def place_real_mt5_trade(symbol, action, volume, sl_points, tp_points, user=None):
+def place_real_mt5_trade(symbol, action, volume, sl_points, tp_points, user=None, magic=999111):
     """
     Places a REAL trade on the connected MT5/Exness terminal.
     sl_points and tp_points are the distance in points (e.g. 150 points).
@@ -184,7 +184,7 @@ def place_real_mt5_trade(symbol, action, volume, sl_points, tp_points, user=None
             "sl": sl,
             "tp": tp,
             "deviation": 20,
-            "magic": 999111,
+            "magic": magic,
             "comment": "Nextun Bot",
             "type_time": mt5.ORDER_TIME_GTC,
             "type_filling": mt5.ORDER_FILLING_IOC,
