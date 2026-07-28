@@ -35,11 +35,10 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Logout
+  // Logout — only clear the auth token; strategy state lives in the DB
   document.getElementById('logout-btn')?.addEventListener('click', (e) => {
     e.preventDefault();
     sessionStorage.removeItem('nextunToken');
-    sessionStorage.removeItem('dt_strategy_active');
     window.location.href = '/';
   });
 
@@ -48,6 +47,7 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
       const token = sessionStorage.getItem('nextunToken');
       if (!token) return;
+
       const res = await fetch('/api/bot/status', {
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -92,9 +92,12 @@ document.addEventListener('DOMContentLoaded', () => {
         const ltPanel = document.getElementById('lt-bot-panel');
         const ltLabel = document.getElementById('lt-bot-label-text');
         const ltToggle = document.getElementById('lt-bot-toggle');
-        if (ltPanel) ltPanel.style.display = 'none';
-        if (ltLabel) { ltLabel.textContent = 'Bot: OFF'; ltLabel.style.color = ''; }
-        if (ltToggle) ltToggle.checked = false;
+
+        if (execBtn)  { execBtn.textContent = '⚡ Run Live Strategy'; execBtn.classList.remove('active-state'); }
+        if (panel)    { panel.style.display = 'none'; }
+        if (ltPanel)  { ltPanel.style.display = 'none'; }
+        if (ltLabel)  { ltLabel.textContent = 'Bot: OFF'; ltLabel.style.color = ''; }
+        if (ltToggle) { ltToggle.checked = false; }
       }
 
     } catch (e) { }
@@ -311,7 +314,7 @@ function startBotStatusPolling(token, logEl) {
 
   botStatusInterval = setInterval(async () => {
     try {
-      const res = await fetch('/api/bot/status', {
+      const res = await fetch('/api/bot/status?strategyId=1', {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const data = await res.json();
@@ -323,14 +326,17 @@ function startBotStatusPolling(token, logEl) {
         lastLogCount = data.logs.length;
       }
 
-      // If bot stopped on its own, update the button
-      if (data.success && !data.running) {
+      // ONLY stop if manually deactivated/removed from DB
+      if (data.success && data.activated === false) {
         const btn = document.getElementById('dt-execute-btn');
-        if (btn && btn.textContent.includes('Stop')) {
+        if (btn && (btn.textContent.includes('Stop') || btn.classList.contains('active-state'))) {
           btn.textContent = '⚡ Run Live Strategy';
           btn.classList.remove('active-state');
+          sessionStorage.setItem('dt_strategy_active', 'false');
           clearInterval(botStatusInterval);
           botStatusInterval = null;
+          const panel = document.getElementById('bot-panel');
+          if (panel) setTimeout(() => { panel.style.display = 'none'; }, 2000);
         }
       }
     } catch (e) {
@@ -593,7 +599,7 @@ function startLtBotStatusPolling(token) {
 
   ltBotStatusInterval = setInterval(async () => {
     try {
-      const res = await fetch('/api/bot/status', {
+      const res = await fetch('/api/bot/status?strategyId=2', {
         headers: { 'Authorization': `Bearer ${token}` }
       });
 
@@ -605,14 +611,18 @@ function startLtBotStatusPolling(token) {
         lastLogCount = data.logs.length;
       }
 
-      // Bot stopped externally
-      if (data.success && data.activeStrategy === null) {
+      // ONLY stop if manually deactivated/removed from DB
+      if (data.success && data.activated === false) {
         const execBtn = document.getElementById('lt-execute-btn');
 
         if (execBtn && execBtn.classList.contains('active-state')) {
-          execBtn.textContent = 'Run Live Strategy';
+          execBtn.textContent = '⚡ Run Live Strategy';
           execBtn.classList.remove('active-state');
-          ltAddLog('[SYSTEM] Bot stopped from another session.');
+          ltAddLog('[SYSTEM] Bot stopped.');
+          clearInterval(ltBotStatusInterval);
+          ltBotStatusInterval = null;
+          const panel = document.getElementById('lt-bot-panel');
+          if (panel) setTimeout(() => { panel.style.display = 'none'; }, 2000);
         }
       }
 
@@ -716,16 +726,18 @@ async function ltExecuteLiveStrategy() {
 
     } else {
       alert(data.message || 'Error');
+      // Restore button text since toggle failed
+      execBtn.textContent = originalText;
     }
 
   } catch (err) {
     console.error(err);
     alert('Network error');
-
-  } finally {
-    execBtn.disabled = false;
+    // Restore original text only on error path
     execBtn.textContent = originalText;
   }
+
+  execBtn.disabled = false;
 }
 
 // ================= BACKTEST =================
@@ -897,7 +909,7 @@ async function ltToggleBot(checkbox) {
         sessionStorage.setItem('dt_strategy_timeframe', timeframe);
         sessionStorage.setItem('dt_strategy_rr', '1:2');
 
-        startBotStatusPolling(token, log); // Uses the same polling logic as Double Top
+        startLtBotStatusPolling(token);
       } else {
         label.textContent = 'Bot: OFF';
         label.style.color = '';

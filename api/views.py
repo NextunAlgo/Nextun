@@ -339,13 +339,14 @@ class ToggleStrategyView(APIView):
 
 class BotStatusView(APIView):
     permission_classes = [IsAuthenticated]
- 
+
     def get(self, request):
         from .models import UserActiveStrategy, BotLog
         user = request.user
         strategy_id = request.query_params.get('strategyId')
-        
+
         if strategy_id:
+            # ── Per-strategy status (used by log-polling) ──
             try:
                 strategy_id = int(strategy_id)
             except ValueError:
@@ -359,6 +360,7 @@ class BotStatusView(APIView):
                 strategy_name = active_strat.strategy.name
                 success_rate = active_strat.strategy.successRate
                 risk_reward = active_strat.strategy.riskReward
+                activated = True
             except UserActiveStrategy.DoesNotExist:
                 is_running = False
                 symbol = None
@@ -374,6 +376,7 @@ class BotStatusView(APIView):
             return Response({
                 'success': True,
                 'running': is_running,
+                'activated': activated,
                 'symbol': symbol,
                 'timeframe': timeframe,
                 'strategyName': strategy_name,
@@ -382,20 +385,46 @@ class BotStatusView(APIView):
                 'risk_reward': risk_reward,
                 'logs': logs
             })
+
         else:
-            # SyncState global fetch
-            active_strats = UserActiveStrategy.objects.filter(user=user)
-            running_list = []
+            # ── Global syncState fetch (called on page load with no strategyId) ──
+            # Returns the FIRST active strategy in the format syncState() expects.
+            active_strats = UserActiveStrategy.objects.filter(user=user).select_related('strategy')
+
+            if not active_strats.exists():
+                return Response({
+                    'success': True,
+                    'running': False,
+                    'activated': False,
+                    'strategy_name': None,
+                    'activeStrategy': None,
+                    'symbol': None,
+                    'timeframe': None,
+                    'logs': []
+                })
+
+            # Auto-restart all persisted bot threads and collect info
+            all_running = []
             for strat in active_strats:
                 running_list.append({
                     'strategy_id': strat.strategy.id,
                     'strategy_name': strat.strategy.name,
                     'running': True
                 })
-                
+
+            # Return the primary (first) active strategy in flat format for syncState(),
+            # plus the full list so the frontend can handle multiple strategies.
+            primary = all_running[0]
             return Response({
                 'success': True,
-                'active_strategies': running_list
+                'running': primary['running'],
+                'activated': True,
+                'strategy_name': primary['strategy_name'],
+                'activeStrategy': primary['strategy_id'],
+                'symbol': primary['symbol'],
+                'timeframe': primary['timeframe'],
+                'logs': primary['logs'],
+                'active_strategies': all_running
             })
 
 
