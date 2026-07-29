@@ -406,7 +406,7 @@ class BotStatusView(APIView):
             # Auto-restart all persisted bot threads and collect info
             all_running = []
             for strat in active_strats:
-                running_list.append({
+                all_running.append({
                     'strategy_id': strat.strategy.id,
                     'strategy_name': strat.strategy.name,
                     'running': True
