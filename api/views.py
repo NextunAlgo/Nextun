@@ -188,14 +188,10 @@ class VerifyLoginOtpView(APIView):
 
         otp=request.data.get("otp")
 
-        if LOGIN_OTP.get(email)==otp:
-
+        if email and otp and LOGIN_OTP.get(email) == otp:
             del LOGIN_OTP[email]
-
             return Response({
-
-                "success":True
-
+                "success": True
             })
 
         return Response({
@@ -368,6 +364,7 @@ class BotStatusView(APIView):
                 strategy_name = None
                 success_rate = None
                 risk_reward = None
+                activated = False
                 
             # Fetch last 50 logs from DB
             logs = list(BotLog.objects.filter(user=user, strategy_id=strategy_id).values_list('message', flat=True)[:50])
@@ -405,11 +402,23 @@ class BotStatusView(APIView):
 
             # Auto-restart all persisted bot threads and collect info
             all_running = []
+
             for strat in active_strats:
+                logs = list(
+                    BotLog.objects.filter(
+                        user=user,
+                        strategy=strat.strategy
+                    ).values_list('message', flat=True)[:50]
+                )
+                logs.reverse()
+
                 all_running.append({
                     'strategy_id': strat.strategy.id,
                     'strategy_name': strat.strategy.name,
-                    'running': True
+                    'running': True,
+                    'symbol': strat.symbol,
+                    'timeframe': strat.timeframe,
+                    'logs': logs
                 })
 
             # Return the primary (first) active strategy in flat format for syncState(),
