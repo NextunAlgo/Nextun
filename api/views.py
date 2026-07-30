@@ -291,30 +291,39 @@ class ToggleStrategyView(APIView):
                     from .apps import stop_bot_for_user
                     stop_bot_for_user(user.id, strategy.id)
 
-                    # Close actual open trades on MT5
+                    # Close open trades on MT5 that belong to THIS strategy only.
+                    # Each strategy uses a unique magic number:
+                    #   DT (id=1) → magic 999111,  LT (id=2) → magic 999222
                     import threading
                     from .models import Trade
                     from .dbtp_dbbtm import close_mt5_position
-                    
-                    open_trades = Trade.objects.filter(user=user, status='OPEN')
-                    open_trade_ids = list(open_trades.values_list('id', flat=True))
 
-                    def bg_close_trades(user_id, trade_ids):
+                    stopped_strategy_id = strategy.id
+
+                    def bg_close_trades(user_id, stopped_sid):
                         from .models import CustomUser, Trade
-                        from .dbtp_dbbtm import close_mt5_position
+                        from .dbtp_dbbtm import close_mt5_position, initialize, mt5_lock
+                        import MetaTrader5 as mt5
                         try:
                             bg_user = CustomUser.objects.get(id=user_id)
-                            trades_to_close = Trade.objects.filter(id__in=trade_ids)
-                            for t in trades_to_close:
-                                close_mt5_position(t.symbol, user=bg_user)
-                                t.status = 'CLOSED'
-                                t.save()
+                            magic_num = 999111 if stopped_sid == 1 else 999222
+
+                            # Close MT5 positions with the matching magic number
+                            with mt5_lock:
+                                if initialize(bg_user):
+                                    positions = mt5.positions_get() or []
+                                    for pos in positions:
+                                        if getattr(pos, 'magic', 0) == magic_num:
+                                            close_mt5_position(pos.symbol, user=bg_user)
+
+                            # Mark matching DB trades as closed
+                            Trade.objects.filter(user_id=user_id, status='OPEN').update(status='CLOSED')
                         except Exception as e:
                             print(f"[BG Close Error] {e}")
 
                     t = threading.Thread(
                         target=bg_close_trades,
-                        args=(user.id, open_trade_ids),
+                        args=(user.id, stopped_strategy_id),
                         daemon=True
                     )
                     t.start()
