@@ -9,15 +9,27 @@ class ApiConfig(AppConfig):
     name = 'api'
 
     def ready(self):
-        # Avoid double-start from Django's auto-reloader (it forks a child process)
-        # RUN_MAIN is set to 'true' in the child (reloader) process
-        if os.environ.get('RUN_MAIN') != 'true':
+        import sys
+        # Skip starting bot manager for standard CLI management commands
+        skip_commands = {'migrate', 'makemigrations', 'collectstatic', 'shell', 'createsuperuser', 'test', 'showmigrations'}
+        if any(cmd in sys.argv for cmd in skip_commands):
             return
+
+        # In Django runserver, RUN_MAIN is 'true' in the reloader child process.
+        # Skip the parent process to prevent starting double threads in dev mode.
+        if 'runserver' in sys.argv and os.environ.get('RUN_MAIN') != 'true':
+            return
+
+        # Ensure manager starts only once per process
+        if getattr(ApiConfig, '_bot_manager_started', False):
+            return
+        ApiConfig._bot_manager_started = True
 
         # Start the bot manager in a background daemon thread
         t = threading.Thread(target=_bot_manager_loop, daemon=True)
         t.start()
         print("[BOT MANAGER] Started — watching database for active strategies...")
+
 
 
 # ── Shared state for the bot manager ────────────────────────────
