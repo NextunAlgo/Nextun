@@ -1482,9 +1482,10 @@ body.dark-theme .settings-btn-solid {
   color: var(--text-gray);
 }
 
-.broker-info {
+.broker-row .broker-info {
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
   gap: 2px;
 }
 

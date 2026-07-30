@@ -105,6 +105,25 @@ document.addEventListener('DOMContentLoaded', function () {
           window.liveTrades = [];
           window.liveMetrics = {};
         }
+        
+        // Fetch Exness Broker Data
+        const exnessRes = await fetch('/api/exness/dashboard', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const exnessData = await exnessRes.json();
+        if (exnessData.success && exnessData.data) {
+          document.getElementById('dashboard-broker-name').textContent = 'Exness (MT5)';
+          document.getElementById('broker-available-funds').textContent = '$' + (exnessData.data.balance || 0).toFixed(2);
+          document.getElementById('broker-margin-used').textContent = '$' + (exnessData.data.margin || 0).toFixed(2);
+          const connectBtn = document.getElementById('broker-connect-btn');
+          if (connectBtn) {
+            connectBtn.style.display = 'none';
+          }
+        } else {
+          document.getElementById('dashboard-broker-name').textContent = 'No Broker Connected';
+          document.getElementById('broker-available-funds').textContent = '$0.00';
+          document.getElementById('broker-margin-used').textContent = '$0.00';
+        }
       }
     } catch(e) {
       window.liveTrades = [];
