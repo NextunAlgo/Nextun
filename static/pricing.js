@@ -81,12 +81,40 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
-const menuToggle = document.getElementById("menuToggle");
-const sidebar = document.querySelector(".sidebar");
+  const menuToggle = document.getElementById("menuToggle");
+  const sidebar = document.querySelector(".sidebar");
+  const mainContent = document.querySelector(".main-content");
 
-if (menuToggle && sidebar) {
-    menuToggle.addEventListener("click", function () {
-        sidebar.classList.toggle("show");
-    });
-}
+  // Open sidebar
+  menuToggle.addEventListener("click", (e) => {
+      e.stopPropagation();
+      sidebar.classList.add("show");
+  });
+
+  // Close when clicking outside sidebar
+  document.addEventListener("click", (e) => {
+
+      if (
+          sidebar.classList.contains("show") &&
+          !sidebar.contains(e.target) &&
+          !menuToggle.contains(e.target)
+      ) {
+          sidebar.classList.remove("show");
+      }
+
+  });
+
+  // Prevent closing when clicking inside sidebar
+  sidebar.addEventListener("click", (e) => {
+      e.stopPropagation();
+  });
+
+  // Desktop resize
+  window.addEventListener("resize", () => {
+
+      if(window.innerWidth > 768){
+          sidebar.classList.remove("show");
+      }
+
+  });
 });
