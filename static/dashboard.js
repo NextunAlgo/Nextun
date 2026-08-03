@@ -113,6 +113,10 @@ document.addEventListener('DOMContentLoaded', function () {
         const exnessData = await exnessRes.json();
         if (exnessData.success && exnessData.data) {
           document.getElementById('dashboard-broker-name').textContent = 'Exness (MT5)';
+          document.getElementById("dashboard-broker-logo-box").innerHTML = `
+            <img src="/static/exness-logo.png"
+                alt="Exness"
+                style="width:48px;height:48px;object-fit:contain;">`;
           document.getElementById('broker-available-funds').textContent = '$' + (exnessData.data.balance || 0).toFixed(2);
           document.getElementById('broker-margin-used').textContent = '$' + (exnessData.data.margin || 0).toFixed(2);
           const connectBtn = document.getElementById('broker-connect-btn');
@@ -375,10 +379,39 @@ document.addEventListener('DOMContentLoaded', function () {
 
   const menuToggle = document.getElementById("menuToggle");
   const sidebar = document.querySelector(".sidebar");
+  const mainContent = document.querySelector(".main-content");
 
-  menuToggle.addEventListener("click", () => {
-    sidebar.classList.toggle("show");
+  // Open sidebar
+  menuToggle.addEventListener("click", (e) => {
+      e.stopPropagation();
+      sidebar.classList.add("show");
   });
 
+  // Close when clicking outside sidebar
+  document.addEventListener("click", (e) => {
+
+      if (
+          sidebar.classList.contains("show") &&
+          !sidebar.contains(e.target) &&
+          !menuToggle.contains(e.target)
+      ) {
+          sidebar.classList.remove("show");
+      }
+
+  });
+
+  // Prevent closing when clicking inside sidebar
+  sidebar.addEventListener("click", (e) => {
+      e.stopPropagation();
+  });
+
+  // Desktop resize
+  window.addEventListener("resize", () => {
+
+      if(window.innerWidth > 768){
+          sidebar.classList.remove("show");
+      }
+
+  });
 });
 

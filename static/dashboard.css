@@ -135,6 +135,14 @@ body {
     flex-shrink:0;
 }
 
+/* Overlay */
+.sidebar-overlay{
+    display:none;
+    position:fixed;
+    inset:0;
+    background:rgba(0,0,0,.45);
+    z-index:9;
+}
 /* ==================
    MAIN CONTENT
    ================== */
@@ -433,6 +441,12 @@ body.dark-theme .menu-toggle{
   display: flex;
   align-items: center;
   justify-content: center;
+}
+.broker-icon-wrapper img{
+    width:100%;
+    height:100%;
+    object-fit:contain;
+    display:block;
 }
 
 body.dark-theme .angel-one-light { display: none; }
@@ -1713,6 +1727,10 @@ body.dark-theme .settings-btn-solid {
 
     left:0;
 }
+  /* Hide menu button when sidebar is open */
+.sidebar.show ~ .main-content .menu-toggle{
+    display:none;
+}
 
 .sidebar::before{
     content:"";
@@ -1802,6 +1820,11 @@ body.dark-theme .settings-btn-solid {
     flex-direction:column;
     gap:15px;
   }
+
+  .broker-icon-wrapper{
+    width:40px;
+    height:40px;
+}
 
   .strategy-toggle-box{
 
