@@ -1001,7 +1001,7 @@ SMALL MOBILE
     gap:12px;
 }
 
-.login-otp-input, .signup-otp-input, .angelone-otp-input {
+.login-otp-input, .signup-otp-input, .forgot-password-otp-input, .angelone-otp-input {
 
     width:52px;
     height:56px;
@@ -1017,7 +1017,7 @@ SMALL MOBILE
     transition:.2s;
 }
 
-.login-otp-input:focus, .signup-otp-input:focus, .angelone-otp-input:focus {
+.login-otp-input:focus, .signup-otp-input:focus, .forgot-password-otp-input:focus, .angelone-otp-input:focus {
     border-color:var(--primary);
     box-shadow:0 0 0 3px rgba(0, 184, 82, 0.1);
 }
@@ -1039,6 +1039,7 @@ SMALL MOBILE
 
 .otp-boxes.error .login-otp-input,
 .otp-boxes.error .signup-otp-input,
+.otp-boxes.error .forgot-password-otp-input,
 .otp-boxes.error .angelone-otp-input {
     border-color: #EF4444;
 }
