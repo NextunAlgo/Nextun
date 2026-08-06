@@ -181,7 +181,7 @@
         </div>
 
         <div class="forgot-row">
-          <a href="#" class="txt-link txt-link--blue">Forgot Password?</a>
+          <a href="#" class="txt-link txt-link--blue" id="forgot-password-link">Forgot Password?</a>
         </div>
 
         <!-- Next button -->
@@ -260,6 +260,160 @@
             <span id="verify-otp-loader" class="gone">
                 <i class="fa-solid fa-spinner fa-spin"></i>
                 Verifying...
+            </span>
+        </button>
+
+    </div>
+
+</div>
+
+    <!-- ================= FORGOT PASSWORD EMAIL MODAL ================= -->
+
+<div id="forgot-password-modal" class="modal-overlay gone">
+
+    <div class="modal-content">
+
+        <div class="modal-header">
+            <h2>Forgot Password</h2>
+
+            <button
+                type="button"
+                id="close-forgot-password"
+                class="close-modal">
+                &times;
+            </button>
+        </div>
+
+        <p class="otp-desc">
+            Enter your account email to receive a 6-digit verification code.
+        </p>
+
+        <div class="fgroup" id="forgot-grp-email">
+          <label class="flabel" for="forgot-email">Email</label>
+          <div class="ibox">
+            <input class="finput" type="email" id="forgot-email" name="forgot-email" placeholder="Enter your email address" autocomplete="email"/>
+          </div>
+          <span class="ferr" id="forgot-email-err"></span>
+        </div>
+
+        <div
+            id="forgot-password-error"
+            class="otp-error">
+        </div>
+
+        <button id="send-forgot-password-otp-btn" class="otp-verify-btn">
+            <span id="send-forgot-password-otp-text">Send OTP</span>
+            <span id="send-forgot-password-otp-loader" class="gone">
+                <i class="fa-solid fa-spinner fa-spin"></i>
+                Sending...
+            </span>
+        </button>
+
+    </div>
+
+</div>
+
+    <!-- ================= FORGOT PASSWORD OTP MODAL ================= -->
+
+<div id="forgot-password-otp-modal" class="modal-overlay gone">
+
+    <div class="modal-content">
+
+        <div class="modal-header">
+            <h2>Email Verification</h2>
+
+            <button
+                type="button"
+                id="close-forgot-password-otp"
+                class="close-modal">
+                &times;
+            </button>
+        </div>
+
+        <p class="otp-desc">
+            We've sent a 6-digit verification code to your email.
+        </p>
+
+        <div id="forgot-password-otp-container" class="otp-boxes">
+
+            <input class="forgot-password-otp-input" maxlength="1">
+
+            <input class="forgot-password-otp-input" maxlength="1">
+
+            <input class="forgot-password-otp-input" maxlength="1">
+
+            <input class="forgot-password-otp-input" maxlength="1">
+
+            <input class="forgot-password-otp-input" maxlength="1">
+
+            <input class="forgot-password-otp-input" maxlength="1">
+
+        </div>
+
+        <div
+            id="forgot-password-otp-error"
+            class="otp-error">
+        </div>
+
+        <button id="verify-forgot-password-otp-btn" class="otp-verify-btn">
+            <span id="verify-forgot-password-otp-text">Verify OTP</span>
+            <span id="verify-forgot-password-otp-loader" class="gone">
+                <i class="fa-solid fa-spinner fa-spin"></i>
+                Verifying...
+            </span>
+        </button>
+
+    </div>
+
+</div>
+
+    <!-- ================= RESET PASSWORD MODAL ================= -->
+
+<div id="reset-password-modal" class="modal-overlay gone">
+
+    <div class="modal-content">
+
+        <div class="modal-header">
+            <h2>Reset Password</h2>
+
+            <button
+                type="button"
+                id="close-reset-password"
+                class="close-modal">
+                &times;
+            </button>
+        </div>
+
+        <p class="otp-desc">
+            Enter and confirm your new password.
+        </p>
+
+        <div class="fgroup" id="reset-grp-pw">
+          <label class="flabel" for="reset-password">New Password</label>
+          <div class="ibox">
+            <input class="finput" type="password" id="reset-password" name="reset-password" placeholder="Enter new password" autocomplete="new-password"/>
+          </div>
+          <span class="ferr" id="reset-password-err"></span>
+        </div>
+
+        <div class="fgroup" id="reset-grp-confirm">
+          <label class="flabel" for="reset-confirm-password">Confirm Password</label>
+          <div class="ibox">
+            <input class="finput" type="password" id="reset-confirm-password" name="reset-confirm-password" placeholder="Confirm new password" autocomplete="new-password"/>
+          </div>
+          <span class="ferr" id="reset-confirm-password-err"></span>
+        </div>
+
+        <div
+            id="reset-password-error"
+            class="otp-error">
+        </div>
+
+        <button id="reset-password-btn" class="otp-verify-btn">
+            <span id="reset-password-text">Reset Password</span>
+            <span id="reset-password-loader" class="gone">
+                <i class="fa-solid fa-spinner fa-spin"></i>
+                Resetting...
             </span>
         </button>
 
@@ -448,6 +602,6 @@
     </div>
   </div>
 
-<script src="{% static 'app.js' %}?v=6"></script>
+<script src="{% static 'app.js' %}?v=9"></script>
 </body>
 </html>

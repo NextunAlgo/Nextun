@@ -81,3 +81,31 @@ Follow these steps to set up the project locally on your machine:
 
 6. **Access the application**
    Open your web browser and go to `http://127.0.0.1:8000`
+
+## Email Configuration
+
+The project reads SMTP settings from a local `.env` file when one exists.
+
+1. Copy the example file:
+   ```bash
+   cp .env.example .env
+   ```
+
+2. Fill in your Gmail App Password, or replace the values with credentials from another SMTP provider:
+   ```env
+   EMAIL_HOST=smtp.gmail.com
+   EMAIL_PORT=587
+   EMAIL_HOST_USER=nextun.algo@gmail.com
+   EMAIL_HOST_PASSWORD=your-app-password
+   DEFAULT_FROM_EMAIL=nextun.algo@gmail.com
+   EMAIL_USE_TLS=True
+   EMAIL_USE_SSL=False
+   ```
+
+3. Never commit `.env`. It contains local secrets and is ignored by Git.
+
+4. Keep `.env.example` in GitHub so other developers know which settings are required.
+
+5. Each developer should maintain their own local `.env` file.
+
+6. Production servers should use environment variables or a secure secrets manager instead of committing credentials.

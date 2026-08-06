@@ -1,5 +1,9 @@
 from django.shortcuts import render
 from django.contrib.auth import get_user_model, authenticate, update_session_auth_hash
+from django.contrib.auth.hashers import make_password
+from django.core.cache import cache
+from django.core.exceptions import ValidationError
+from django.db import IntegrityError
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
@@ -17,15 +21,82 @@ from django.db.models import Sum
 from .strategy_backtest import backtest_strategy
 from .liquidity_trap_backtest import backtest_liquidity_trap
 import random
-from .dbtp_dbbtm import get_signal
-from .exness_gateway import ExnessDummyGateway
-import MetaTrader5 as mt5
+import logging
+import secrets
 
 from django.core.mail import send_mail
 
 from django.conf import settings
 
 User = get_user_model()
+logger = logging.getLogger(__name__)
+
+
+def _generate_otp():
+    return f"{secrets.randbelow(900000) + 100000}"
+
+
+def _normalize_otp_email(email):
+    return str(email or "").strip().lower()
+
+
+def _normalize_otp_value(otp):
+    return str(otp or "").strip()
+
+
+def _signup_otp_cache_key(email):
+    return f"signup-otp:{_normalize_otp_email(email)}"
+
+
+def _hash_otp(email, otp, purpose="signup"):
+    from django.utils.crypto import salted_hmac
+
+    return salted_hmac(
+        f"nextun.{purpose}.otp",
+        f"{_normalize_otp_email(email)}:{_normalize_otp_value(otp)}"
+    ).hexdigest()
+
+
+def _otp_matches(email, otp, otp_hash, purpose="signup"):
+    from django.utils.crypto import constant_time_compare
+
+    return constant_time_compare(_hash_otp(email, otp, purpose), otp_hash)
+
+
+def _get_unique_username(base_username):
+    username = base_username or "user"
+    candidate = username
+    counter = 1
+    while User.objects.filter(username=candidate).exists():
+        candidate = f"{username}{counter}"
+        counter += 1
+    return candidate
+
+
+def _forgot_password_otp_cache_key(email):
+    return f"forgot-password-otp:{_normalize_otp_email(email)}"
+
+
+def _send_signup_otp_email(email, otp):
+    expires_in = max(settings.SIGNUP_OTP_TIMEOUT_SECONDS, 1)
+    send_mail(
+        subject="Nextun Signup Verification",
+        message=f"Your signup OTP is {otp}. This code expires in {expires_in} seconds.",
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        recipient_list=[email],
+        fail_silently=False
+    )
+
+
+def _send_forgot_password_otp_email(email, otp):
+    expires_in = max(settings.SIGNUP_OTP_TIMEOUT_SECONDS, 1)
+    send_mail(
+        subject="Nextun Password Reset Verification",
+        message=f"Your password reset OTP is {otp}. This code expires in {expires_in} seconds.",
+        from_email=settings.DEFAULT_FROM_EMAIL,
+        recipient_list=[email],
+        fail_silently=False
+    )
 
 # ─────────────── Frontend Template Views ───────────────
 def index_view(request):
@@ -62,74 +133,243 @@ class ApiRootView(APIView):
         })
 
 
-SIGNUP_OTP = {}
 class RegisterView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
         serializer = RegisterSerializer(data=request.data)
         if serializer.is_valid():
-            email = serializer.validated_data['email']
-            password = request.data.get('password')
+            email = _normalize_otp_email(serializer.validated_data['email'])
+            username = serializer.validated_data.get('username') or email.split('@')[0]
+            username = _get_unique_username(username)
+            password = serializer.validated_data['password']
             
-            # Generate OTP
-            otp = str(random.randint(100000, 999999))
-            SIGNUP_OTP[email] = {'password': password, 'otp': otp}
+            otp = _generate_otp()
 
-            # Send OTP
+            cache_key = _signup_otp_cache_key(email)
+            cache.set(
+                cache_key,
+                {
+                    'email': email,
+                    'username': username,
+                    'password': make_password(password),
+                    'otp_hash': _hash_otp(email, otp),
+                },
+                timeout=settings.SIGNUP_OTP_TIMEOUT_SECONDS,
+            )
+
             try:
-                send_mail(
-                    subject="Nextun Signup Verification",
-                    message=f"Your signup OTP is {otp}",
-                    from_email=settings.EMAIL_HOST_USER,
-                    recipient_list=[email],
-                    fail_silently=False
-                )
-            except Exception as e:
-                print(f"[Nextun] Email send warning: {e}")
+                _send_signup_otp_email(email, otp)
+            except Exception:
+                cache.delete(cache_key)
+                logger.exception("Failed to send signup OTP email to %s", email)
+                return Response({
+                    "success": False,
+                    "message": "Unable to send verification email. Please try again later."
+                }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
-            response_data = {
+            return Response({
                 "success": True,
-                "message": "OTP Sent"
-            }
-            if settings.DEBUG:
-                response_data["otp"] = otp
-                print(f"[Nextun DEV] Signup OTP for {email}: {otp}")
-
-            return Response(response_data, status=status.HTTP_200_OK)
+                "message": "OTP sent to your email."
+            }, status=status.HTTP_200_OK)
         return Response({'success': False, 'message': serializer.errors}, status=400)
 
 class VerifyRegisterOtpView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
-        email = request.data.get("email")
-        otp = request.data.get("otp")
+        email = _normalize_otp_email(request.data.get("email"))
+        otp = _normalize_otp_value(request.data.get("otp"))
 
-        stored_data = SIGNUP_OTP.get(email)
-        if stored_data and stored_data['otp'] == otp:
-            password = stored_data['password']
+        if not email or not otp:
+            return Response({
+                "success": False,
+                "message": "Email and OTP are required"
+            }, status=400)
+
+        cache_key = _signup_otp_cache_key(email)
+        stored_data = cache.get(cache_key)
+        if not stored_data:
+            return Response({
+                "success": False,
+                "message": "OTP expired or not found"
+            }, status=400)
+
+        otp_matches = _otp_matches(email, otp, stored_data['otp_hash'])
+        if otp_matches:
+            cache.delete(cache_key)
             
-            # Use serializer to create user properly
-            serializer = RegisterSerializer(data={'email': email, 'password': password})
-            if serializer.is_valid():
-                user = serializer.save()
-                del SIGNUP_OTP[email]
-                
+            try:
+                user = User(
+                    email=stored_data['email'],
+                    username=_get_unique_username(stored_data['username']),
+                    password=stored_data['password'],
+                )
+                user.save()
+
                 refresh = RefreshToken.for_user(user)
                 return Response({
                     'success': True,
+                    'message': 'Verified successfully.',
                     'token': str(refresh.access_token),
                     'refresh': str(refresh),
                     'user': UserSerializer(user).data
                 }, status=status.HTTP_201_CREATED)
-            else:
-                return Response({'success': False, 'message': serializer.errors}, status=400)
+            except ValidationError as e:
+                return Response({'success': False, 'message': e.message_dict}, status=400)
+            except IntegrityError as e:
+                logger.exception("Failed to create verified signup user for %s", email)
+                return Response({
+                    'success': False,
+                    'message': {'email': ['User already exists']}
+                }, status=400)
+            except Exception as e:
+                logger.exception("Unexpected signup verification error for %s", email)
+                return Response({
+                    'success': False,
+                    'message': 'Unable to create account. Please try again.'
+                }, status=400)
             
         return Response({
             "success": False,
             "message": "Invalid OTP"
         }, status=400)
+
+
+class ForgotPasswordView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        email = _normalize_otp_email(request.data.get("email"))
+        generic_response = {
+            "success": True,
+            "message": "If an account exists, an OTP has been sent to your email."
+        }
+
+        if not email:
+            return Response({
+                "success": False,
+                "message": "Email is required"
+            }, status=400)
+
+        user = User.objects.filter(email=email).first()
+        if not user:
+            return Response(generic_response, status=status.HTTP_200_OK)
+
+        otp = _generate_otp()
+        cache_key = _forgot_password_otp_cache_key(email)
+        cache.set(
+            cache_key,
+            {
+                "email": email,
+                "otp_hash": _hash_otp(email, otp, purpose="forgot-password"),
+                "verified": False,
+            },
+            timeout=settings.SIGNUP_OTP_TIMEOUT_SECONDS,
+        )
+
+        try:
+            _send_forgot_password_otp_email(email, otp)
+        except Exception:
+            cache.delete(cache_key)
+            logger.exception("Failed to send forgot password OTP email to %s", email)
+            return Response({
+                "success": False,
+                "message": "Unable to send verification email. Please try again later."
+            }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+        return Response(generic_response, status=status.HTTP_200_OK)
+
+
+class VerifyForgotPasswordOtpView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        email = _normalize_otp_email(request.data.get("email"))
+        otp = _normalize_otp_value(request.data.get("otp"))
+
+        if not email or not otp:
+            return Response({
+                "success": False,
+                "message": "Email and OTP are required"
+            }, status=400)
+
+        cache_key = _forgot_password_otp_cache_key(email)
+        stored_data = cache.get(cache_key)
+        if not stored_data:
+            return Response({
+                "success": False,
+                "message": "OTP expired or not found"
+            }, status=400)
+
+        if _otp_matches(email, otp, stored_data["otp_hash"], purpose="forgot-password"):
+            stored_data["verified"] = True
+            cache.set(
+                cache_key,
+                stored_data,
+                timeout=settings.SIGNUP_OTP_TIMEOUT_SECONDS,
+            )
+            return Response({
+                "success": True,
+                "message": "OTP verified successfully."
+            }, status=status.HTTP_200_OK)
+
+        return Response({
+            "success": False,
+            "message": "Invalid OTP"
+        }, status=400)
+
+
+class ResetPasswordView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        email = _normalize_otp_email(request.data.get("email"))
+        new_password = request.data.get("newPassword")
+        confirm_password = request.data.get("confirmPassword")
+
+        if not email or not new_password or not confirm_password:
+            return Response({
+                "success": False,
+                "message": "Email, new password, and confirm password are required"
+            }, status=400)
+
+        if new_password != confirm_password:
+            return Response({
+                "success": False,
+                "message": "Passwords do not match"
+            }, status=400)
+
+        if len(new_password) < 6:
+            return Response({
+                "success": False,
+                "message": "Password must be at least 6 characters."
+            }, status=400)
+
+        cache_key = _forgot_password_otp_cache_key(email)
+        stored_data = cache.get(cache_key)
+        if not stored_data or not stored_data.get("verified"):
+            return Response({
+                "success": False,
+                "message": "OTP verification is required before resetting password"
+            }, status=400)
+
+        user = User.objects.filter(email=email).first()
+        if not user:
+            cache.delete(cache_key)
+            return Response({
+                "success": False,
+                "message": "Unable to reset password. Please try again."
+            }, status=400)
+
+        user.set_password(new_password)
+        user.save()
+        cache.delete(cache_key)
+
+        return Response({
+            "success": True,
+            "message": "Password reset successfully. Please log in."
+        }, status=status.HTTP_200_OK)
 
 LOGIN_OTP = {}
 class LoginView(APIView):
@@ -151,7 +391,7 @@ class LoginView(APIView):
                     send_mail(
                         subject="Nextun Login Verification",
                         message=f"Your OTP is {otp}",
-                        from_email=settings.EMAIL_HOST_USER,
+                        from_email=settings.DEFAULT_FROM_EMAIL,
                         recipient_list=[email],
                         fail_silently=False
                     )
@@ -657,7 +897,7 @@ class AngelOneConnectView(APIView):
             send_mail(
                 subject="Nextun — AngelOne Connection Verification",
                 message=f"Your AngelOne connection OTP is: {otp}\n\nThis code expires in 5 minutes.",
-                from_email=settings.EMAIL_HOST_USER,
+                from_email=settings.DEFAULT_FROM_EMAIL,
                 recipient_list=[user.email],
                 fail_silently=False,
             )
@@ -861,6 +1101,8 @@ class ExecuteStrategyView(APIView):
         tp = signal.get("tp", 300)
 
         # 3. Connect to Exness and place trade
+        import MetaTrader5 as mt5
+        from .exness_gateway import ExnessDummyGateway
         from .dbtp_dbbtm import mt5_lock
         with mt5_lock:
             gateway = ExnessDummyGateway(

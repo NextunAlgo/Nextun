@@ -47,6 +47,36 @@ const loginBtnNext   = document.getElementById('login-btn-next');
 const loginBtnLbl    = document.getElementById('login-btn-lbl');
 const loginBtnSpin   = document.getElementById('login-btn-spin');
 
+/* ── DOM references: Forgot Password ── */
+const forgotPasswordLink = document.getElementById('forgot-password-link');
+const forgotPasswordModal = document.getElementById('forgot-password-modal');
+const closeForgotPassword = document.getElementById('close-forgot-password');
+const forgotEmail = document.getElementById('forgot-email');
+const forgotEmailErr = document.getElementById('forgot-email-err');
+const forgotPasswordError = document.getElementById('forgot-password-error');
+const sendForgotPasswordOtpBtn = document.getElementById('send-forgot-password-otp-btn');
+const sendForgotPasswordOtpText = document.getElementById('send-forgot-password-otp-text');
+const sendForgotPasswordOtpLoader = document.getElementById('send-forgot-password-otp-loader');
+const forgotPasswordOtpModal = document.getElementById('forgot-password-otp-modal');
+const closeForgotPasswordOtp = document.getElementById('close-forgot-password-otp');
+const forgotPasswordOtpError = document.getElementById('forgot-password-otp-error');
+const verifyForgotPasswordOtpBtn = document.getElementById('verify-forgot-password-otp-btn');
+const verifyForgotPasswordOtpText = document.getElementById('verify-forgot-password-otp-text');
+const verifyForgotPasswordOtpLoader = document.getElementById('verify-forgot-password-otp-loader');
+const resetPasswordModal = document.getElementById('reset-password-modal');
+const closeResetPassword = document.getElementById('close-reset-password');
+const resetPasswordInput = document.getElementById('reset-password');
+const resetConfirmPasswordInput = document.getElementById('reset-confirm-password');
+const resetPasswordErr = document.getElementById('reset-password-err');
+const resetConfirmPasswordErr = document.getElementById('reset-confirm-password-err');
+const resetPasswordError = document.getElementById('reset-password-error');
+const resetPasswordBtn = document.getElementById('reset-password-btn');
+const resetPasswordText = document.getElementById('reset-password-text');
+const resetPasswordLoader = document.getElementById('reset-password-loader');
+
+let forgotPasswordEmail = "";
+let forgotPasswordOtpVerified = false;
+
 /* ════════════════════════════
    VIEW TOGGLING
 ════════════════════════════ */
@@ -103,6 +133,21 @@ function setOk(input, el) {
 function clearState(input, el) {
   input.classList.remove('err', 'ok');
   if (el) el.textContent = '';
+}
+
+function formatBackendError(error, fallback = 'Something went wrong') {
+  if (!error) return fallback;
+  if (typeof error === 'string') return error;
+  if (Array.isArray(error)) {
+    return error.map(item => formatBackendError(item, '')).filter(Boolean).join(' ');
+  }
+  if (typeof error === 'object') {
+    return Object.values(error)
+      .map(value => formatBackendError(value, ''))
+      .filter(Boolean)
+      .join(' ');
+  }
+  return String(error);
 }
 
 /* ════════════════════════════
@@ -280,24 +325,10 @@ form.addEventListener('submit', async (e) => {
       document.getElementById("signup-otp-error").textContent = "";
       signupOtpModal.classList.remove("gone");
 
-      // In dev mode, server returns OTP directly — auto-fill the boxes
-      if (data.otp && data.otp.length === 6) {
-          data.otp.split("").forEach((digit, i) => {
-              if (signupOtpInputs[i]) signupOtpInputs[i].value = digit;
-          });
-          setTimeout(() => {
-              document.getElementById("verify-signup-otp-btn").click();
-          }, 400);
-      } else {
-          signupOtpInputs[0].focus();
-      }
+      signupOtpInputs[0].focus();
 
     } else {
-      let errMsg = data.message || 'Registration failed';
-      if (typeof errMsg === 'object') {
-        const key = Object.keys(errMsg)[0];
-        errMsg = Array.isArray(errMsg[key]) ? errMsg[key][0] : String(errMsg[key]);
-      }
+      let errMsg = formatBackendError(data.message, 'Registration failed');
       console.error('[Nextun] Signup failed:', errMsg);
       setErr(emailInput, emailErr, errMsg);
       shakeFirstErr(form);
@@ -374,13 +405,17 @@ verifySignupOtpBtn?.addEventListener("click", async () => {
 
         if (data.success) {
             sessionStorage.setItem("nextunToken", data.token);
-            signupOtpModal.classList.add("gone");
-            // Automatically log in and show broker view
-            showBrokerView();
-            // Pre-fill login email just in case
-            loginEmail.value = emailInput.value;
+            signupOtpError.style.color = "#16a34a";
+            signupOtpError.textContent = data.message || "Verified successfully.";
+            setTimeout(() => {
+                signupOtpModal.classList.add("gone");
+                signupOtpError.style.color = "";
+                showBrokerView();
+                loginEmail.value = emailInput.value;
+            }, 700);
         } else {
-            signupOtpError.textContent = "Incorrect OTP";
+            signupOtpError.style.color = "";
+            signupOtpError.textContent = formatBackendError(data.message, "Incorrect OTP");
             document.getElementById("signup-otp-container").classList.add("error");
             setTimeout(() => { document.getElementById("signup-otp-container").classList.remove("error"); }, 400);
         }
@@ -481,18 +516,7 @@ loginForm.addEventListener("submit", async (e) => {
 
     document.getElementById("login-otp-modal").classList.remove("gone");
 
-    // In dev mode, server returns OTP directly — auto-fill the boxes
-    if (data.otp && data.otp.length === 6) {
-        data.otp.split("").forEach((digit, i) => {
-            if (loginOtpInputs[i]) loginOtpInputs[i].value = digit;
-        });
-        // Auto-submit after a brief moment
-        setTimeout(() => {
-            document.getElementById("verify-login-otp-btn").click();
-        }, 400);
-    } else {
-        loginOtpInputs[0].focus();
-    }
+    loginOtpInputs[0].focus();
 
 }
         else{
@@ -749,6 +773,260 @@ document.getElementById("login-otp-modal").addEventListener("click", (e) => {
     }
 
 });
+
+/* ════════════════════════════
+   FORGOT PASSWORD
+════════════════════════════ */
+function validateForgotEmail() {
+  const v = forgotEmail.value.trim();
+  if (!v) { setErr(forgotEmail, forgotEmailErr, 'Email is required.'); return false; }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) { setErr(forgotEmail, forgotEmailErr, 'Enter a valid email address.'); return false; }
+  setOk(forgotEmail, forgotEmailErr);
+  return true;
+}
+
+function validateResetPassword() {
+  const v = resetPasswordInput.value;
+  if (!v) { setErr(resetPasswordInput, resetPasswordErr, 'Password is required.'); return false; }
+  if (v.length < 6) { setErr(resetPasswordInput, resetPasswordErr, 'Password must be at least 6 characters.'); return false; }
+  setOk(resetPasswordInput, resetPasswordErr);
+  return true;
+}
+
+function validateResetConfirmPassword() {
+  const pw = resetPasswordInput.value;
+  const cpw = resetConfirmPasswordInput.value;
+  if (!cpw) { setErr(resetConfirmPasswordInput, resetConfirmPasswordErr, 'Please confirm your password.'); return false; }
+  if (pw !== cpw) { setErr(resetConfirmPasswordInput, resetConfirmPasswordErr, 'Passwords do not match.'); return false; }
+  setOk(resetConfirmPasswordInput, resetConfirmPasswordErr);
+  return true;
+}
+
+function closeForgotPasswordFlow() {
+  forgotPasswordEmail = "";
+  forgotPasswordOtpVerified = false;
+  forgotPasswordModal.classList.add("gone");
+  forgotPasswordOtpModal.classList.add("gone");
+  resetPasswordModal.classList.add("gone");
+  forgotPasswordError.textContent = "";
+  forgotPasswordOtpError.textContent = "";
+  resetPasswordError.textContent = "";
+  forgotEmailErr.textContent = "";
+  resetPasswordErr.textContent = "";
+  resetConfirmPasswordErr.textContent = "";
+  forgotEmail.classList.remove("err", "ok");
+  resetPasswordInput.classList.remove("err", "ok");
+  resetConfirmPasswordInput.classList.remove("err", "ok");
+  document.querySelectorAll(".forgot-password-otp-input").forEach(input => input.value = "");
+}
+
+forgotPasswordLink?.addEventListener("click", (e) => {
+  e.preventDefault();
+  forgotPasswordEmail = "";
+  forgotPasswordOtpVerified = false;
+  closeForgotPasswordFlow();
+  forgotEmail.value = loginEmail.value.trim();
+  forgotPasswordModal.classList.remove("gone");
+  forgotEmail.focus();
+});
+
+forgotEmail?.addEventListener("blur", validateForgotEmail);
+forgotEmail?.addEventListener("input", () => {
+  if (forgotEmail.classList.contains("err")) validateForgotEmail();
+});
+
+sendForgotPasswordOtpBtn?.addEventListener("click", async () => {
+  if (!validateForgotEmail()) return;
+
+  sendForgotPasswordOtpBtn.disabled = true;
+  sendForgotPasswordOtpText.classList.add("gone");
+  sendForgotPasswordOtpLoader.classList.remove("gone");
+  forgotPasswordError.textContent = "";
+
+  try {
+    const res = await fetch("/api/auth/forgot-password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: forgotEmail.value })
+    });
+    const data = await res.json();
+
+    if (res.ok && data.success) {
+      forgotPasswordEmail = forgotEmail.value.trim();
+      forgotPasswordModal.classList.add("gone");
+      document.querySelectorAll(".forgot-password-otp-input").forEach(input => input.value = "");
+      forgotPasswordOtpError.textContent = "";
+      forgotPasswordOtpModal.classList.remove("gone");
+      document.querySelector(".forgot-password-otp-input")?.focus();
+    } else {
+      forgotPasswordError.textContent = formatBackendError(data.message, "Unable to send OTP");
+    }
+  } catch (e) {
+    forgotPasswordError.textContent = "Server connection failed";
+  } finally {
+    sendForgotPasswordOtpBtn.disabled = false;
+    sendForgotPasswordOtpText.classList.remove("gone");
+    sendForgotPasswordOtpLoader.classList.add("gone");
+  }
+});
+
+const forgotPasswordOtpInputs = document.querySelectorAll(".forgot-password-otp-input");
+
+forgotPasswordOtpInputs.forEach((input, index) => {
+  input.addEventListener("input", (e) => {
+    e.target.value = e.target.value.replace(/\D/g, "");
+    if (e.target.value && index < 5) {
+      forgotPasswordOtpInputs[index + 1].focus();
+    }
+    const otp = [...forgotPasswordOtpInputs].map(i => i.value).join("");
+    if (otp.length === 6) {
+      verifyForgotPasswordOtpBtn.click();
+    }
+  });
+
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Backspace" && input.value === "" && index > 0) {
+      forgotPasswordOtpInputs[index - 1].focus();
+    }
+  });
+});
+
+forgotPasswordOtpInputs[0]?.addEventListener("paste", (e) => {
+  e.preventDefault();
+  const pastedData = (e.clipboardData || window.clipboardData).getData("text").replace(/\D/g, "");
+  if (!pastedData) return;
+  pastedData.slice(0, 6).split("").forEach((digit, index) => {
+    if (forgotPasswordOtpInputs[index]) {
+      forgotPasswordOtpInputs[index].value = digit;
+    }
+  });
+  const lastIndex = Math.min(pastedData.length, 6) - 1;
+  if (lastIndex >= 0) {
+    forgotPasswordOtpInputs[lastIndex].focus();
+  }
+});
+
+verifyForgotPasswordOtpBtn?.addEventListener("click", async () => {
+  const otp = [...forgotPasswordOtpInputs].map(i => i.value).join("");
+  if (otp.length !== 6) {
+    forgotPasswordOtpError.textContent = "Enter 6 digit OTP";
+    document.getElementById("forgot-password-otp-container").classList.add("error");
+    setTimeout(() => { document.getElementById("forgot-password-otp-container").classList.remove("error"); }, 400);
+    return;
+  }
+
+  verifyForgotPasswordOtpBtn.disabled = true;
+  verifyForgotPasswordOtpText.classList.add("gone");
+  verifyForgotPasswordOtpLoader.classList.remove("gone");
+  forgotPasswordOtpError.textContent = "";
+
+  try {
+    const res = await fetch("/api/auth/verify-forgot-password-otp", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: forgotPasswordEmail, otp: otp })
+    });
+    const data = await res.json();
+
+    if (res.ok && data.success) {
+      forgotPasswordOtpVerified = true;
+      forgotPasswordOtpModal.classList.add("gone");
+      resetPasswordInput.value = "";
+      resetConfirmPasswordInput.value = "";
+      resetPasswordError.textContent = "";
+      resetPasswordModal.classList.remove("gone");
+      resetPasswordInput.focus();
+    } else {
+      forgotPasswordOtpError.textContent = formatBackendError(data.message, "Incorrect OTP");
+      document.getElementById("forgot-password-otp-container").classList.add("error");
+      setTimeout(() => { document.getElementById("forgot-password-otp-container").classList.remove("error"); }, 400);
+    }
+  } catch (e) {
+    forgotPasswordOtpError.textContent = "Server Error";
+  } finally {
+    verifyForgotPasswordOtpBtn.disabled = false;
+    verifyForgotPasswordOtpText.classList.remove("gone");
+    verifyForgotPasswordOtpLoader.classList.add("gone");
+  }
+});
+
+resetPasswordInput?.addEventListener("blur", validateResetPassword);
+resetPasswordInput?.addEventListener("input", () => {
+  if (resetPasswordInput.classList.contains("err")) validateResetPassword();
+  if (resetConfirmPasswordInput.value.length > 0) validateResetConfirmPassword();
+});
+resetConfirmPasswordInput?.addEventListener("blur", validateResetConfirmPassword);
+resetConfirmPasswordInput?.addEventListener("input", () => {
+  if (resetConfirmPasswordInput.classList.contains("err")) validateResetConfirmPassword();
+});
+
+resetPasswordBtn?.addEventListener("click", async () => {
+  const ok = [validateResetPassword(), validateResetConfirmPassword()].every(Boolean);
+  if (!ok) return;
+
+  if (!forgotPasswordOtpVerified) {
+    resetPasswordError.textContent = "OTP verification is required before resetting password";
+    return;
+  }
+
+  resetPasswordBtn.disabled = true;
+  resetPasswordText.classList.add("gone");
+  resetPasswordLoader.classList.remove("gone");
+  resetPasswordError.textContent = "";
+
+  try {
+    const res = await fetch("/api/auth/reset-password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: forgotPasswordEmail,
+        newPassword: resetPasswordInput.value,
+        confirmPassword: resetConfirmPasswordInput.value
+      })
+    });
+    const data = await res.json();
+
+    if (res.ok && data.success) {
+      resetPasswordError.style.color = "#16a34a";
+      resetPasswordError.textContent = data.message || "Password reset successfully.";
+      loginEmail.value = forgotPasswordEmail;
+      loginPw.value = "";
+      setTimeout(() => {
+        resetPasswordError.style.color = "";
+        closeForgotPasswordFlow();
+        loginView.classList.remove("gone");
+        signupView.classList.add("gone");
+        brokerView.classList.add("gone");
+        loginPw.focus();
+      }, 900);
+    } else {
+      resetPasswordError.style.color = "";
+      resetPasswordError.textContent = formatBackendError(data.message, "Unable to reset password");
+    }
+  } catch (e) {
+    resetPasswordError.style.color = "";
+    resetPasswordError.textContent = "Server connection failed";
+  } finally {
+    resetPasswordBtn.disabled = false;
+    resetPasswordText.classList.remove("gone");
+    resetPasswordLoader.classList.add("gone");
+  }
+});
+
+closeForgotPassword?.addEventListener("click", closeForgotPasswordFlow);
+closeForgotPasswordOtp?.addEventListener("click", closeForgotPasswordFlow);
+closeResetPassword?.addEventListener("click", closeForgotPasswordFlow);
+
+forgotPasswordModal?.addEventListener("click", (e) => {
+  if (e.target.id === "forgot-password-modal") closeForgotPasswordFlow();
+});
+forgotPasswordOtpModal?.addEventListener("click", (e) => {
+  if (e.target.id === "forgot-password-otp-modal") closeForgotPasswordFlow();
+});
+resetPasswordModal?.addEventListener("click", (e) => {
+  if (e.target.id === "reset-password-modal") closeForgotPasswordFlow();
+});
+
 /* ════════════════════════════
    GOOGLE BUTTON (stub)
 ════════════════════════════ */
@@ -827,15 +1105,7 @@ connectForm.addEventListener('submit', async (e) => {
       document.getElementById('angelone-otp-error').textContent = '';
 
       // Auto-fill in DEBUG mode
-      if (data.otp && data.otp.length === 6) {
-        data.otp.split('').forEach((digit, i) => {
-          const inputs = document.querySelectorAll('.angelone-otp-input');
-          if (inputs[i]) inputs[i].value = digit;
-        });
-        setTimeout(() => document.getElementById('verify-angelone-otp-btn').click(), 400);
-      } else {
-        document.querySelectorAll('.angelone-otp-input')[0]?.focus();
-      }
+      document.querySelectorAll('.angelone-otp-input')[0]?.focus();
     } else {
       connectMessage.style.display = 'block';
       connectMessage.style.color = '#f03e3e';
