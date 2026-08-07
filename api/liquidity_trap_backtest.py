@@ -43,13 +43,28 @@ def backtest_liquidity_trap(symbol, timeframe='5m', use_market_hours=False):
     if len(exec_df) < 50 or len(struct_df) < 24:
         return {'error': f'Not enough data bars for {symbol}.'}
 
-    # Map Major Liquidity Pools (Rolling 24-hour High/Low)
-    # Assuming struct_interval is 1h (1 bar = 1 hour), 24 window = 24 hours
-    # If 4h, window = 6 bars
-    struct_window = 24 if cfg['struct_interval'] == '1h' else 6
-    struct_df['Major_High'] = struct_df['High'].rolling(window=struct_window).max().shift(1)
-    struct_df['Major_Low'] = struct_df['Low'].rolling(window=struct_window).min().shift(1)
-    struct_df.dropna(inplace=True)
+    # Map Major Liquidity Pools using 5-Bar Fractals (Lookahead Bias Prevented)
+    struct_df['Fractal_High'] = np.where(
+        (struct_df['High'].shift(2) > struct_df['High'].shift(4)) & 
+        (struct_df['High'].shift(2) > struct_df['High'].shift(3)) & 
+        (struct_df['High'].shift(2) > struct_df['High'].shift(1)) & 
+        (struct_df['High'].shift(2) > struct_df['High']),
+        struct_df['High'].shift(2),
+        np.nan
+    )
+    
+    struct_df['Fractal_Low'] = np.where(
+        (struct_df['Low'].shift(2) < struct_df['Low'].shift(4)) & 
+        (struct_df['Low'].shift(2) < struct_df['Low'].shift(3)) & 
+        (struct_df['Low'].shift(2) < struct_df['Low'].shift(1)) & 
+        (struct_df['Low'].shift(2) < struct_df['Low']),
+        struct_df['Low'].shift(2),
+        np.nan
+    )
+    
+    struct_df['Major_High'] = struct_df['Fractal_High'].ffill()
+    struct_df['Major_Low'] = struct_df['Fractal_Low'].ffill()
+    struct_df.dropna(subset=['Major_High', 'Major_Low'], inplace=True)
 
     trades = []
     total_pnl = 0.0
@@ -81,6 +96,9 @@ def backtest_liquidity_trap(symbol, timeframe='5m', use_market_hours=False):
         right_index=True,
         direction='backward'
     )
+    
+    # Volume Validation Filter (20-period SMA)
+    exec_df['Vol_SMA'] = exec_df['Volume'].rolling(window=20).mean()
 
     for i in range(1, len(exec_df)):
         curr_time = exec_df.index[i]
@@ -98,6 +116,8 @@ def backtest_liquidity_trap(symbol, timeframe='5m', use_market_hours=False):
         prev_high = exec_df['High'].iloc[i-1]
         prev_low = exec_df['Low'].iloc[i-1]
         prev_close = exec_df['Close'].iloc[i-1]
+        prev_vol = exec_df['Volume'].iloc[i-1]
+        prev_vol_sma = exec_df['Vol_SMA'].iloc[i-1]
 
         major_high = exec_df['Major_High'].iloc[i]
         major_low = exec_df['Major_Low'].iloc[i]
@@ -109,62 +129,54 @@ def backtest_liquidity_trap(symbol, timeframe='5m', use_market_hours=False):
             # Manage trade
             if trade_type == 'LONG':
                 if curr_low <= sl:
-                    if partial_done:
-                        pnl = (tp1 - entry_price) * 0.5 + (sl - entry_price) * 0.5
-                        partials += 1
-                        status = 'PARTIAL'
-                    else:
-                        pnl = sl - entry_price
-                        losses += 1
-                        status = 'LOSS'
+                    pnl = sl - entry_price
+                    status = 'BREAKEVEN' if partial_done else 'LOSS'
+                    if status == 'BREAKEVEN': partials += 1
+                    else: losses += 1
                     total_pnl += pnl
                     trades.append(_make_trade(trade_type, pattern_type, entry_time, curr_time, entry_price, sl, pnl, status, symbol))
+                    in_trade = False
+                elif curr_high >= tp2:
+                    pnl = tp2 - entry_price
+                    total_pnl += pnl
+                    wins += 1
+                    trades.append(_make_trade(trade_type, pattern_type, entry_time, curr_time, entry_price, tp2, pnl, 'WIN', symbol))
                     in_trade = False
                 elif not partial_done and curr_high >= tp1:
                     partial_done = True
                     sl = entry_price # Move SL to breakeven
-                elif partial_done and curr_high >= tp2:
-                    pnl = (tp1 - entry_price) * 0.5 + (tp2 - entry_price) * 0.5
+            elif trade_type == 'SHORT':
+                if curr_high >= sl:
+                    pnl = entry_price - sl
+                    status = 'BREAKEVEN' if partial_done else 'LOSS'
+                    if status == 'BREAKEVEN': partials += 1
+                    else: losses += 1
+                    total_pnl += pnl
+                    trades.append(_make_trade(trade_type, pattern_type, entry_time, curr_time, entry_price, sl, pnl, status, symbol))
+                    in_trade = False
+                elif curr_low <= tp2:
+                    pnl = entry_price - tp2
                     total_pnl += pnl
                     wins += 1
                     trades.append(_make_trade(trade_type, pattern_type, entry_time, curr_time, entry_price, tp2, pnl, 'WIN', symbol))
-                    in_trade = False
-            elif trade_type == 'SHORT':
-                if curr_high >= sl:
-                    if partial_done:
-                        pnl = (entry_price - tp1) * 0.5 + (entry_price - sl) * 0.5
-                        partials += 1
-                        status = 'PARTIAL'
-                    else:
-                        pnl = entry_price - sl
-                        losses += 1
-                        status = 'LOSS'
-                    total_pnl += pnl
-                    trades.append(_make_trade(trade_type, pattern_type, entry_time, curr_time, entry_price, sl, pnl, status, symbol))
                     in_trade = False
                 elif not partial_done and curr_low <= tp1:
                     partial_done = True
                     sl = entry_price
-                elif partial_done and curr_low <= tp2:
-                    pnl = (entry_price - tp1) * 0.5 + (entry_price - tp2) * 0.5
-                    total_pnl += pnl
-                    wins += 1
-                    trades.append(_make_trade(trade_type, pattern_type, entry_time, curr_time, entry_price, tp2, pnl, 'WIN', symbol))
-                    in_trade = False
             continue
 
         # Look for Setup
         # BUY Setup: Sweep below 1H Low, Reclaim (close above)
         if prev_low < major_low and curr_close > major_low:
-            # Bullish reclaim candle
-            if curr_close > curr_open:
+            # Bullish reclaim candle and Volume > SMA
+            if curr_close > curr_open and prev_vol > prev_vol_sma:
                 if i + 1 < len(exec_df):
                     ep = exec_df['Open'].iloc[i+1]
                     sl_ = min(prev_low, curr_low) * 0.999 # Stop loss slightly below sweep wick
                     tp2_ = major_high # Final TP at opposing swing
                     risk = ep - sl_
                     if risk > 0:
-                        tp1_ = ep + risk # 1:1 TP for partial
+                        tp1_ = ep + 2 * risk # 1:2 TP for breakeven trigger
                         
                         entry_price = ep
                         sl = sl_
@@ -179,15 +191,15 @@ def backtest_liquidity_trap(symbol, timeframe='5m', use_market_hours=False):
 
         # SELL Setup: Sweep above 1H High, Reject (close below)
         if prev_high > major_high and curr_close < major_high:
-            # Bearish rejection candle
-            if curr_close < curr_open:
+            # Bearish rejection candle and Volume > SMA
+            if curr_close < curr_open and prev_vol > prev_vol_sma:
                 if i + 1 < len(exec_df):
                     ep = exec_df['Open'].iloc[i+1]
                     sl_ = max(prev_high, curr_high) * 1.001 # Stop loss slightly above sweep wick
                     tp2_ = major_low # Final TP at opposing swing
                     risk = sl_ - ep
                     if risk > 0:
-                        tp1_ = ep - risk # 1:1 TP for partial
+                        tp1_ = ep - 2 * risk # 1:2 TP for breakeven trigger
                         
                         entry_price = ep
                         sl = sl_
